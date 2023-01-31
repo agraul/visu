@@ -1,18 +1,22 @@
 use eframe::egui;
-use rand::prelude::*;
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::{thread, time};
+
+mod algos;
+mod datatypes;
 
 struct VerticalBarWidget {
     height: u8,
     width: u8,
+    color: egui::Color32,
 }
 
 impl VerticalBarWidget {
-    fn new(height: u8) -> Self {
+    fn new(height: u8, color: egui::Color32) -> Self {
         Self {
             height: height * 10,
             width: 15,
+            color,
         }
     }
 }
@@ -29,15 +33,13 @@ impl egui::Widget for &mut VerticalBarWidget {
             },
         );
         let painter = ui.painter();
-        painter.rect_filled(rect, egui::Rounding::none(), egui::Color32::RED);
+        painter.rect_filled(rect, egui::Rounding::none(), self.color);
         response
     }
 }
 
 struct VisuApp {
-    numbers: Vec<u8>,
-    rx: mpsc::Receiver<Vec<u8>>,
-    tx: mpsc::Sender<Vec<u8>>,
+    numbers: Arc<Mutex<datatypes::NumberVec>>,
 }
 impl VisuApp {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
@@ -45,49 +47,47 @@ impl VisuApp {
         // Restore app state using cc.storage (requires the "persistence" feature).
         // Use the cc.gl (a glow::Context) to create graphics shaders and buffers that you can use
         // for e.g. egui::PaintCallback.
-        let (tx, rx) = mpsc::channel();
+        let vals = (1..=25).rev().collect();
         Self {
-            numbers: (1..=25).rev().collect(),
-            tx,
-            rx,
-        }
-    }
-}
-
-fn bubble_sort(mut numbers: Vec<u8>, delay: time::Duration, tx: mpsc::Sender<Vec<u8>>) {
-    for n in 0..numbers.len() {
-        for i in 0..numbers.len() - n - 1 {
-            let j = i + 1;
-            if numbers[i] > numbers[j] {
-                numbers.swap(i, j);
-                tx.send(numbers.clone()).unwrap();
-                // thread::sleep(delay);
-            }
+            numbers: Arc::new(Mutex::new(datatypes::NumberVec::new(vals))),
         }
     }
 }
 
 impl eframe::App for VisuApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if let Ok(numbers) = self.rx.try_recv() {
-            self.numbers = numbers;
-        }
-
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::SidePanel::left("control_panel").show(ctx, |ui| {
             ui.heading("Welcome to visu");
             if ui.add(egui::Button::new("Shuffle numbers")).clicked() {
-                let nums = &mut self.numbers;
-                let mut rng = thread_rng();
-                nums.shuffle(&mut rng);
+                let nums = Arc::clone(&self.numbers);
+                thread::spawn(move || algos::shuffle(nums));
             }
             if ui.add(egui::Button::new("Start Bubble Sort")).clicked() {
-                let numbers = self.numbers.clone();
-                let sender = self.tx.clone();
-                thread::spawn(move || bubble_sort(numbers, time::Duration::from_millis(50), sender));
+                let nums = Arc::clone(&self.numbers);
+                let duration = time::Duration::from_millis(10);
+                let context = ctx.clone();
+                thread::spawn(move || algos::bubble(nums, duration, &context));
             }
+        });
+
+        egui::CentralPanel::default().show(ctx, |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::BOTTOM), |ui| {
-                for n in &self.numbers {
-                    ui.add(&mut VerticalBarWidget::new(*n));
+                let nums_arc = Arc::clone(&self.numbers);
+                // .len() above automatically dereferences, it does not exist on MutexGuard
+                // That does not happen automatically with `for` -> `.iter()` is needed
+                let mut nums = nums_arc.lock().unwrap();
+                let highlight_at = nums.highlight_at;
+                for (i, n) in nums.values.iter_mut().enumerate() {
+                    if let Some(h) = highlight_at {
+                        if h == i {
+                            n.color(egui::Color32::YELLOW);
+                        } else {
+                            n.color(datatypes::Number::default().color);
+                        }
+                    } else {
+                        n.color(datatypes::Number::default().color);
+                    }
+                    ui.add(&mut VerticalBarWidget::new(n.value, n.color));
                 }
             });
         });

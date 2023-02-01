@@ -104,6 +104,26 @@ impl eframe::App for VisuApp {
                     algos::bubblesort(nums, delay, &context, flag)
                 }));
             }
+            if ui.add(egui::Button::new("Quick Sort")).clicked() {
+                // signal current thread to stop
+                if let Some(t) = self.thread.take() {
+                    let flag = Arc::clone(&self.stop_flag);
+                    flag.store(true, Ordering::Relaxed);
+                    t.join().unwrap();
+                }
+
+                // then launch new thread
+                let flag = Arc::clone(&self.stop_flag);
+                flag.store(false, Ordering::Relaxed);
+                let nums = Arc::clone(&self.numbers);
+                let high_index = Arc::clone(&self.numbers).lock().unwrap().values.len() - 1;
+                let delay = Arc::clone(&self.animation_delay_ms);
+                let context = ctx.clone();
+                self.thread = Some(thread::spawn(move || {
+                    algos::quicksort(nums, 0, high_index, &delay, &context, &flag)
+                }));
+            }
+
             // Animation speed slider
             let animation_delay = Arc::clone(&self.animation_delay_ms);
             let mut speed = delay_to_speed(&animation_delay.load(Ordering::Acquire));

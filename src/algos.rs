@@ -1,13 +1,14 @@
 use eframe::egui;
 use rand::prelude::*;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::{thread, time};
 
 use crate::datatypes;
 
-pub fn bubble(
+pub fn bubblesort(
     numbers: Arc<Mutex<datatypes::NumberVec>>,
-    sleep_for: time::Duration,
+    animation_delay: Arc<AtomicU8>,
     ctx: &egui::Context,
 ) {
     let nums = numbers.lock().unwrap();
@@ -26,7 +27,9 @@ pub fn bubble(
 
             drop(nums);
             ctx.request_repaint();
-            thread::sleep(sleep_for);
+            thread::sleep(time::Duration::from_millis(
+                animation_delay.load(Ordering::Acquire).into(),
+            ));
         }
     }
 }

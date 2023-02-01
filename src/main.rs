@@ -1,6 +1,7 @@
 use eframe::egui;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
-use std::{thread, time};
+use std::thread;
 
 mod algos;
 mod datatypes;
@@ -40,7 +41,9 @@ impl egui::Widget for &mut VerticalBarWidget {
 
 struct VisuApp {
     numbers: Arc<Mutex<datatypes::NumberVec>>,
+    animation_delay_ms: Arc<AtomicU8>,
 }
+
 impl VisuApp {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         // Customize egui here with cc.egui_ctx.set_fonts and cc.egui_ctx.set_visuals.
@@ -50,8 +53,17 @@ impl VisuApp {
         let vals = (1..=25).rev().collect();
         Self {
             numbers: Arc::new(Mutex::new(datatypes::NumberVec::new(vals))),
+            animation_delay_ms: Arc::new(AtomicU8::new(10)),
         }
     }
+}
+
+fn delay_to_speed(dt: &u8) -> u8 {
+    11 - dt / 10
+}
+
+fn speed_to_delay(v: &u8) -> u8 {
+    110 - 10 * v
 }
 
 impl eframe::App for VisuApp {
@@ -64,10 +76,15 @@ impl eframe::App for VisuApp {
             }
             if ui.add(egui::Button::new("Start Bubble Sort")).clicked() {
                 let nums = Arc::clone(&self.numbers);
-                let duration = time::Duration::from_millis(10);
+                let delay = Arc::clone(&self.animation_delay_ms);
                 let context = ctx.clone();
-                thread::spawn(move || algos::bubble(nums, duration, &context));
+                thread::spawn(move || algos::bubblesort(nums, delay, &context));
             }
+            // Animation speed slider
+            let animation_delay = Arc::clone(&self.animation_delay_ms);
+            let mut speed = delay_to_speed(&animation_delay.load(Ordering::Acquire));
+            ui.add(egui::Slider::new(&mut speed, 1..=10).text("Animation speed"));
+            animation_delay.store(speed_to_delay(&speed), Ordering::Release);
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {

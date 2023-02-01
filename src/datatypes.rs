@@ -5,14 +5,18 @@ pub struct Number {
 }
 
 impl Number {
-    pub fn new(value: u8) -> Self {
+    pub fn new(value: u8, color_multiplier: u8) -> Self {
         Self {
             value,
-            ..Default::default()
+            color: Number::calculate_color(color_multiplier),
         }
     }
-    pub fn color(&mut self, color: egui::Color32) {
-        self.color = color;
+    pub fn color(&mut self, color_multiplier: u8) {
+        self.color = Number::calculate_color(color_multiplier);
+    }
+
+    fn calculate_color(color_multiplier: u8) -> egui::Color32 {
+        egui::Color32::from_rgb(255 - 5* color_multiplier, 100, 100)
     }
 }
 
@@ -33,7 +37,11 @@ pub struct NumberVec {
 impl NumberVec {
     pub fn new(values: Vec<u8>) -> Self {
         Self {
-            values: values.iter().map(|v| Number::new(*v)).collect(),
+            values: values
+                .iter()
+                .enumerate()
+                .map(|(i, v)| Number::new(*v, i as u8))
+                .collect(),
             highlight_at: None,
         }
     }

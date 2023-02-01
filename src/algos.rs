@@ -41,4 +41,7 @@ pub fn shuffle(numbers: Arc<Mutex<datatypes::NumberVec>>) {
     let mut nums = numbers.lock().unwrap();
     nums.highlight_at = None;
     nums.values.shuffle(&mut rng);
+    for (i, n) in nums.values.iter_mut().enumerate() {
+        n.color(i as u8);
+    }
 }

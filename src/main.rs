@@ -95,16 +95,13 @@ impl eframe::App for VisuApp {
                 let mut nums = nums_arc.lock().unwrap();
                 let highlight_at = nums.highlight_at;
                 for (i, n) in nums.values.iter_mut().enumerate() {
+                    let mut col = n.color;
                     if let Some(h) = highlight_at {
                         if h == i {
-                            n.color(egui::Color32::YELLOW);
-                        } else {
-                            n.color(datatypes::Number::default().color);
+                            col = egui::Color32::KHAKI;
                         }
-                    } else {
-                        n.color(datatypes::Number::default().color);
                     }
-                    ui.add(&mut VerticalBarWidget::new(n.value, n.color));
+                    ui.add(&mut VerticalBarWidget::new(n.value, col));
                 }
             });
         });

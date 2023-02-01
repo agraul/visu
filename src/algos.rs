@@ -32,6 +32,8 @@ pub fn bubblesort(
             ));
         }
     }
+    let mut nums = numbers.lock().unwrap();
+    nums.highlight_at = None;
 }
 
 pub fn shuffle(numbers: Arc<Mutex<datatypes::NumberVec>>) {

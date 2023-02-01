@@ -1,5 +1,5 @@
 use eframe::egui;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -42,6 +42,8 @@ impl egui::Widget for &mut VerticalBarWidget {
 struct VisuApp {
     numbers: Arc<Mutex<datatypes::NumberVec>>,
     animation_delay_ms: Arc<AtomicU8>,
+    stop_flag: Arc<AtomicBool>,
+    thread: Option<thread::JoinHandle<()>>,
 }
 
 impl VisuApp {
@@ -54,6 +56,8 @@ impl VisuApp {
         Self {
             numbers: Arc::new(Mutex::new(datatypes::NumberVec::new(vals))),
             animation_delay_ms: Arc::new(AtomicU8::new(10)),
+            stop_flag: Arc::new(AtomicBool::new(false)),
+            thread: None,
         }
     }
 }
@@ -71,14 +75,34 @@ impl eframe::App for VisuApp {
         egui::SidePanel::left("control_panel").show(ctx, |ui| {
             ui.heading("Welcome to visu");
             if ui.add(egui::Button::new("Shuffle numbers")).clicked() {
+                // signal current thread to stop
+                if let Some(t) = self.thread.take() {
+                    let flag = Arc::clone(&self.stop_flag);
+                    flag.store(true, Ordering::Relaxed);
+                    t.join().unwrap();
+                }
+
+                // then launch new thread
                 let nums = Arc::clone(&self.numbers);
-                thread::spawn(move || algos::shuffle(nums));
+                self.thread = Some(thread::spawn(move || algos::shuffle(nums)));
             }
-            if ui.add(egui::Button::new("Start Bubble Sort")).clicked() {
+            if ui.add(egui::Button::new("Bubble Sort")).clicked() {
+                // signal current thread to stop
+                if let Some(t) = self.thread.take() {
+                    let flag = Arc::clone(&self.stop_flag);
+                    flag.store(true, Ordering::Relaxed);
+                    t.join().unwrap();
+                }
+
+                // then launch new thread
+                let flag = Arc::clone(&self.stop_flag);
+                flag.store(false, Ordering::Relaxed);
                 let nums = Arc::clone(&self.numbers);
                 let delay = Arc::clone(&self.animation_delay_ms);
                 let context = ctx.clone();
-                thread::spawn(move || algos::bubblesort(nums, delay, &context));
+                self.thread = Some(thread::spawn(move || {
+                    algos::bubblesort(nums, delay, &context, flag)
+                }));
             }
             // Animation speed slider
             let animation_delay = Arc::clone(&self.animation_delay_ms);

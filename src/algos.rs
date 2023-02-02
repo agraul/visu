@@ -57,9 +57,12 @@ pub fn quicksort(
     ctx: &egui::Context,
     stop_flag: &Arc<AtomicBool>,
 ) {
-    if low_idx > high_idx || stop_flag.load(Ordering::Relaxed) {
+    if low_idx >= high_idx || stop_flag.load(Ordering::Relaxed) {
         return;
     }
+    // let mut nums = numbers.lock().unwrap();
+    // nums.highlight_at = Some(high_idx);
+    // drop(nums);
 
     let pivot_idx = qs_partition(
         Arc::clone(&numbers),
@@ -69,8 +72,9 @@ pub fn quicksort(
         ctx,
         stop_flag,
     );
-    // highlight pivot?
-    println!("{pivot_idx:?}");
+    let mut nums = numbers.lock().unwrap();
+    nums.highlight_at = None;
+    drop(nums);
 
     if pivot_idx == 0 {
         quicksort(
@@ -117,40 +121,36 @@ fn qs_partition(
     ctx: &egui::Context,
     stop_flag: &Arc<AtomicBool>,
 ) -> usize {
-    let mut nums = numbers.lock().unwrap();
+    let nums = numbers.lock().unwrap();
     let pivot_value = nums.values[high_idx].value;
-    println!("pivot value {pivot_value:?} (index {high_idx:?})");
-    // drop(nums);
+    drop(nums);
 
     // when low_idx == 0, i becomes -1 temporarily
     let mut i = low_idx as i64 - 1;
 
     for j in low_idx..high_idx {
-        // if stop_flag.load(Ordering::Relaxed) {
-        //     return high_idx;
-        // }
+        if stop_flag.load(Ordering::Relaxed) {
+            return high_idx;
+        }
 
-        // let mut nums = numbers.lock().unwrap();
-        let looking_at = nums.values[j].value;
-        println!("comparing {looking_at:?} to pivot={pivot_value:?}");
+        let mut nums = numbers.lock().unwrap();
         if nums.values[j].value <= pivot_value {
             i += 1;
             // i should never be negative at this point
             nums.values.swap(i as usize, j)
         }
-        // drop(nums);
+        drop(nums);
         ctx.request_repaint();
         thread::sleep(time::Duration::from_millis(
             animation_delay.load(Ordering::Relaxed).into(),
         ));
     }
 
-    // let mut nums = numbers.lock().unwrap();
+    let mut nums = numbers.lock().unwrap();
     i += 1;
     // i should never be negative at this point
     nums.values.swap(i as usize, high_idx);
     ctx.request_repaint();
-    // drop(nums);
     i as usize
 }
 

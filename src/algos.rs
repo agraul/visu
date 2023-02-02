@@ -1,3 +1,17 @@
+//! Implementations of different algorithms that operate on shared NumberVecs
+//!
+//! The algorithms should take locks for as little time as required since
+//! locking on NumberVecs blocks the UI update. An often repeated pattern to that is
+//!
+//! ```
+//! let nums = numbers.lock().unwrap();  // lock mutex
+//! let length = nums.values.len();      // save for later use
+//! drop(nums);                          // dropping the reference unlocks the mutex
+//! ```
+//! Each algorithm that's should be watchable should call
+//! `ctx.request_repaint()` and sleep afterwards. That ensures the UI thread can
+//! display the changes. The sleeping duration is controlled by the "animation
+//! speed" slider in the UI.
 use eframe::egui;
 use rand::prelude::*;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -29,12 +43,16 @@ pub fn bubblesort(
                 return;
             }
             let j = i + 1;
+
+            // clear old highlights, then highlight i and j
             let mut nums = numbers.lock().unwrap();
+            nums.remove_all_highlights();
+            nums.add_highlight(i, datatypes::Highlight::Primary)
+                .unwrap();
+            nums.add_highlight(j, datatypes::Highlight::Secondary)
+                .unwrap();
             if nums.values[i].value > nums.values[j].value {
                 nums.values.swap(i, j);
-                nums.highlight_at = Some(j);
-            } else {
-                nums.highlight_at = Some(i);
             }
 
             drop(nums);
@@ -45,7 +63,7 @@ pub fn bubblesort(
         }
     }
     let mut nums = numbers.lock().unwrap();
-    nums.highlight_at = None;
+    nums.remove_all_highlights();
     ctx.request_repaint();
 }
 
@@ -72,9 +90,9 @@ pub fn quicksort(
         ctx,
         stop_flag,
     );
-    let mut nums = numbers.lock().unwrap();
-    nums.highlight_at = None;
-    drop(nums);
+    // let mut nums = numbers.lock().unwrap();
+    // nums.highlight_at = None;
+    // drop(nums);
 
     if pivot_idx == 0 {
         quicksort(
@@ -133,7 +151,15 @@ fn qs_partition(
             return high_idx;
         }
 
+        // clear old highlights, then highlight i and j
         let mut nums = numbers.lock().unwrap();
+        nums.remove_all_highlights();
+        if i >= 0 {
+            nums.add_highlight(i as usize, datatypes::Highlight::Primary)
+                .unwrap();
+        }
+        nums.add_highlight(j, datatypes::Highlight::Secondary)
+            .unwrap();
         if nums.values[j].value <= pivot_value {
             i += 1;
             // i should never be negative at this point
@@ -157,7 +183,7 @@ fn qs_partition(
 pub fn shuffle(numbers: Arc<Mutex<datatypes::NumberVec>>) {
     let mut rng = thread_rng();
     let mut nums = numbers.lock().unwrap();
-    nums.highlight_at = None;
+    nums.remove_all_highlights();
     nums.values.shuffle(&mut rng);
     for (i, n) in nums.values.iter_mut().enumerate() {
         n.color(i as u8);

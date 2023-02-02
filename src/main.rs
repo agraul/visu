@@ -39,11 +39,28 @@ impl egui::Widget for &mut VerticalBarWidget {
     }
 }
 
-struct VisuApp {
+/// Owns the number vector that's manipulated by the sorting algorithm
+struct AlgoVisualizer {
     numbers: Arc<Mutex<datatypes::NumberVec>>,
-    animation_delay_ms: Arc<AtomicU8>,
     stop_flag: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
+}
+
+impl Default for AlgoVisualizer {
+    fn default() -> Self {
+        Self {
+            numbers: Arc::new(Mutex::new(datatypes::NumberVec::new(
+                (1..=25).rev().collect(),
+            ))),
+            stop_flag: Arc::new(AtomicBool::new(false)),
+            thread: None,
+        }
+    }
+}
+
+struct VisuApp {
+    visualizers: Vec<AlgoVisualizer>,
+    animation_delay_ms: Arc<AtomicU8>,
 }
 
 impl VisuApp {
@@ -52,12 +69,9 @@ impl VisuApp {
         // Restore app state using cc.storage (requires the "persistence" feature).
         // Use the cc.gl (a glow::Context) to create graphics shaders and buffers that you can use
         // for e.g. egui::PaintCallback.
-        let vals = (1..=25).rev().collect();
         Self {
-            numbers: Arc::new(Mutex::new(datatypes::NumberVec::new(vals))),
+            visualizers: vec![AlgoVisualizer::default(), AlgoVisualizer::default()],
             animation_delay_ms: Arc::new(AtomicU8::new(10)),
-            stop_flag: Arc::new(AtomicBool::new(false)),
-            thread: None,
         }
     }
 }
@@ -72,81 +86,164 @@ fn speed_to_delay(v: &u8) -> u8 {
 
 impl eframe::App for VisuApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::SidePanel::left("control_panel").show(ctx, |ui| {
-            ui.heading("Welcome to visu");
-            if ui.add(egui::Button::new("Shuffle numbers")).clicked() {
-                // signal current thread to stop
-                if let Some(t) = self.thread.take() {
-                    let flag = Arc::clone(&self.stop_flag);
-                    flag.store(true, Ordering::Relaxed);
-                    t.join().unwrap();
-                }
-
-                // then launch new thread
-                let nums = Arc::clone(&self.numbers);
-                self.thread = Some(thread::spawn(move || algos::shuffle(nums)));
-            }
-            if ui.add(egui::Button::new("Bubble Sort")).clicked() {
-                // signal current thread to stop
-                if let Some(t) = self.thread.take() {
-                    let flag = Arc::clone(&self.stop_flag);
-                    flag.store(true, Ordering::Relaxed);
-                    t.join().unwrap();
-                }
-
-                // then launch new thread
-                let flag = Arc::clone(&self.stop_flag);
-                flag.store(false, Ordering::Relaxed);
-                let nums = Arc::clone(&self.numbers);
-                let delay = Arc::clone(&self.animation_delay_ms);
-                let context = ctx.clone();
-                self.thread = Some(thread::spawn(move || {
-                    algos::bubblesort(nums, delay, &context, flag)
-                }));
-            }
-            if ui.add(egui::Button::new("Quick Sort")).clicked() {
-                // signal current thread to stop
-                if let Some(t) = self.thread.take() {
-                    let flag = Arc::clone(&self.stop_flag);
-                    flag.store(true, Ordering::Relaxed);
-                    t.join().unwrap();
-                }
-
-                // then launch new thread
-                let flag = Arc::clone(&self.stop_flag);
-                flag.store(false, Ordering::Relaxed);
-                let nums = Arc::clone(&self.numbers);
-                let high_index = Arc::clone(&self.numbers).lock().unwrap().values.len() - 1;
-                let delay = Arc::clone(&self.animation_delay_ms);
-                let context = ctx.clone();
-                self.thread = Some(thread::spawn(move || {
-                    algos::quicksort(nums, 0, high_index, &delay, &context, &flag)
-                }));
-            }
-
-            // Animation speed slider
-            let animation_delay = Arc::clone(&self.animation_delay_ms);
-            let mut speed = delay_to_speed(&animation_delay.load(Ordering::Acquire));
-            ui.add(egui::Slider::new(&mut speed, 1..=10).text("Animation speed"));
-            animation_delay.store(speed_to_delay(&speed), Ordering::Release);
+        egui::TopBottomPanel::top("title_panel").show(ctx, |ui| {
+            ui.heading("Welcome to VISU!");
         });
-
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::BOTTOM), |ui| {
-                let nums_arc = Arc::clone(&self.numbers);
-                // .len() above automatically dereferences, it does not exist on MutexGuard
-                // That does not happen automatically with `for` -> `.iter()` is needed
-                let mut nums = nums_arc.lock().unwrap();
-                let highlight_at = nums.highlight_at;
-                for (i, n) in nums.values.iter_mut().enumerate() {
-                    let mut col = n.color;
-                    if let Some(h) = highlight_at {
-                        if h == i {
-                            col = egui::Color32::KHAKI;
-                        }
-                    }
-                    ui.add(&mut VerticalBarWidget::new(n.value, col));
-                }
+            ui.vertical(|ui| {
+                // TODO: LOOP THIS!
+                ui.allocate_ui_with_layout(
+                    egui::vec2(350., 250.),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        let visualizer: &mut AlgoVisualizer = &mut self.visualizers[0];
+                        ui.vertical(|ui| {
+                            if ui.add(egui::Button::new("Shuffle numbers")).clicked() {
+                                if let Some(handle) = visualizer.thread.take() {
+                                    let flag = Arc::clone(&visualizer.stop_flag);
+                                    flag.store(true, Ordering::Relaxed);
+                                    handle.join().unwrap();
+                                }
+                                let numbers = Arc::clone(&visualizer.numbers);
+                                visualizer.thread =
+                                    Some(thread::spawn(move || algos::shuffle(numbers)));
+                            } else if ui.add(egui::Button::new("Bubble Sort")).clicked() {
+                                if let Some(handle) = visualizer.thread.take() {
+                                    let flag = Arc::clone(&visualizer.stop_flag);
+                                    flag.store(true, Ordering::Relaxed);
+                                    handle.join().unwrap();
+                                }
+                                let (flag, numbers, delay, context) = (
+                                    Arc::clone(&visualizer.stop_flag),
+                                    Arc::clone(&visualizer.numbers),
+                                    Arc::clone(&self.animation_delay_ms),
+                                    ctx.clone(),
+                                );
+                                flag.store(false, Ordering::Relaxed);
+                                visualizer.thread = Some(thread::spawn(move || {
+                                    algos::bubblesort(numbers, delay, &context, flag)
+                                }));
+                            } else if ui.add(egui::Button::new("Quick Sort")).clicked() {
+                                if let Some(handle) = visualizer.thread.take() {
+                                    let flag = Arc::clone(&visualizer.stop_flag);
+                                    flag.store(true, Ordering::Relaxed);
+                                    handle.join().unwrap();
+                                }
+                                let (flag, numbers, highest_index, delay, context) = (
+                                    Arc::clone(&visualizer.stop_flag),
+                                    Arc::clone(&visualizer.numbers),
+                                    Arc::clone(&visualizer.numbers).lock().unwrap().values.len()
+                                        - 1,
+                                    Arc::clone(&self.animation_delay_ms),
+                                    ctx.clone(),
+                                );
+                                flag.store(false, Ordering::Relaxed);
+                                visualizer.thread = Some(thread::spawn(move || {
+                                    algos::quicksort(
+                                        numbers,
+                                        0,
+                                        highest_index,
+                                        &delay,
+                                        &context,
+                                        &flag,
+                                    )
+                                }));
+                            }
+                        });
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::BOTTOM), |ui| {
+                            let numbers = Arc::clone(&visualizer.numbers);
+                            for num in numbers.lock().unwrap().values.iter() {
+                                let col = match num.highlight {
+                                    datatypes::Highlight::None => num.color,
+                                    datatypes::Highlight::Primary => egui::Color32::KHAKI,
+                                    datatypes::Highlight::Secondary => {
+                                        num.color.linear_multiply(0.5)
+                                    }
+                                };
+                                ui.add(&mut VerticalBarWidget::new(num.value, col));
+                            }
+                        })
+                    },
+                );
+                ui.add_space(20.);
+                ui.allocate_ui_with_layout(
+                    egui::vec2(350., 250.),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        let visualizer: &mut AlgoVisualizer = &mut self.visualizers[1];
+                        ui.vertical(|ui| {
+                            if ui.add(egui::Button::new("Shuffle numbers")).clicked() {
+                                if let Some(handle) = visualizer.thread.take() {
+                                    let flag = Arc::clone(&visualizer.stop_flag);
+                                    flag.store(true, Ordering::Relaxed);
+                                    handle.join().unwrap();
+                                }
+                                let numbers = Arc::clone(&visualizer.numbers);
+                                visualizer.thread =
+                                    Some(thread::spawn(move || algos::shuffle(numbers)));
+                            } else if ui.add(egui::Button::new("Bubble Sort")).clicked() {
+                                if let Some(handle) = visualizer.thread.take() {
+                                    let flag = Arc::clone(&visualizer.stop_flag);
+                                    flag.store(true, Ordering::Relaxed);
+                                    handle.join().unwrap();
+                                }
+                                let (flag, numbers, delay, context) = (
+                                    Arc::clone(&visualizer.stop_flag),
+                                    Arc::clone(&visualizer.numbers),
+                                    Arc::clone(&self.animation_delay_ms),
+                                    ctx.clone(),
+                                );
+                                flag.store(false, Ordering::Relaxed);
+                                visualizer.thread = Some(thread::spawn(move || {
+                                    algos::bubblesort(numbers, delay, &context, flag)
+                                }));
+                            } else if ui.add(egui::Button::new("Quick Sort")).clicked() {
+                                if let Some(handle) = visualizer.thread.take() {
+                                    let flag = Arc::clone(&visualizer.stop_flag);
+                                    flag.store(true, Ordering::Relaxed);
+                                    handle.join().unwrap();
+                                }
+                                let (flag, numbers, highest_index, delay, context) = (
+                                    Arc::clone(&visualizer.stop_flag),
+                                    Arc::clone(&visualizer.numbers),
+                                    Arc::clone(&visualizer.numbers).lock().unwrap().values.len()
+                                        - 1,
+                                    Arc::clone(&self.animation_delay_ms),
+                                    ctx.clone(),
+                                );
+                                flag.store(false, Ordering::Relaxed);
+                                visualizer.thread = Some(thread::spawn(move || {
+                                    algos::quicksort(
+                                        numbers,
+                                        0,
+                                        highest_index,
+                                        &delay,
+                                        &context,
+                                        &flag,
+                                    )
+                                }));
+                            }
+                        });
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::BOTTOM), |ui| {
+                            let numbers = Arc::clone(&visualizer.numbers);
+                            for num in numbers.lock().unwrap().values.iter() {
+                                let col = match num.highlight {
+                                    datatypes::Highlight::None => num.color,
+                                    datatypes::Highlight::Primary => egui::Color32::KHAKI,
+                                    datatypes::Highlight::Secondary => {
+                                        num.color.linear_multiply(0.5)
+                                    }
+                                };
+                                ui.add(&mut VerticalBarWidget::new(num.value, col));
+                            }
+                        })
+                    },
+                );
+                // Animation speed slider
+                let animation_delay = Arc::clone(&self.animation_delay_ms);
+                let mut speed = delay_to_speed(&animation_delay.load(Ordering::Acquire));
+                ui.add(egui::Slider::new(&mut speed, 1..=10).text("Animation speed"));
+                animation_delay.store(speed_to_delay(&speed), Ordering::Release);
             });
         });
     }
@@ -155,6 +252,7 @@ impl eframe::App for VisuApp {
 fn main() {
     let native_options = eframe::NativeOptions {
         default_theme: eframe::Theme::Light,
+        initial_window_size: Some(egui::vec2(750., 600.)),
         ..Default::default()
     };
     eframe::run_native(

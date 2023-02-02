@@ -1,9 +1,17 @@
 use eframe::egui;
 
 #[derive(Debug)]
+pub enum Highlight {
+    None,
+    Primary,
+    Secondary,
+}
+
+#[derive(Debug)]
 pub struct Number {
     pub value: u8,
     pub color: egui::Color32,
+    pub highlight: Highlight,
 }
 
 impl Number {
@@ -11,6 +19,7 @@ impl Number {
         Self {
             value,
             color: Number::calculate_color(color_multiplier),
+            highlight: Highlight::None,
         }
     }
     pub fn color(&mut self, color_multiplier: u8) {
@@ -26,15 +35,6 @@ impl Number {
     }
 }
 
-impl Default for Number {
-    fn default() -> Self {
-        Self {
-            value: 0,
-            color: egui::Color32::RED,
-        }
-    }
-}
-
 impl PartialOrd for Number {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.value.partial_cmp(&other.value)
@@ -46,10 +46,8 @@ impl PartialEq for Number {
     }
 }
 
-
 pub struct NumberVec {
     pub values: Vec<Number>,
-    pub highlight_at: Option<usize>,
 }
 
 impl NumberVec {
@@ -60,7 +58,6 @@ impl NumberVec {
                 .enumerate()
                 .map(|(i, v)| Number::new(*v, i as u8))
                 .collect(),
-            highlight_at: None,
         }
     }
     pub fn is_sorted(&self) -> bool {
@@ -71,8 +68,38 @@ impl NumberVec {
         }
         true
     }
+    pub fn remove_all_highlights(&mut self) {
+        for mut num in self.values.iter_mut() {
+            num.highlight = Highlight::None;
+        }
+    }
+    pub fn add_highlight(
+        &mut self,
+        idx: usize,
+        highlight: Highlight,
+    ) -> Result<(), IndexOutOfBoundsError> {
+        if idx >= self.values.len() {
+            return Err(IndexOutOfBoundsError {
+                requested: idx,
+                maximum: self.values.len() - 1,
+            });
+        }
+        self.values[idx].highlight = highlight;
+        Ok(())
+    }
 }
 
+#[derive(Debug)]
+pub struct IndexOutOfBoundsError {
+    requested: usize,
+    maximum: usize,
+}
+impl std::fmt::Display for IndexOutOfBoundsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Index {} higher than {}", self.requested, self.maximum)
+    }
+}
+impl std::error::Error for IndexOutOfBoundsError {}
 
 #[cfg(test)]
 mod tests {
